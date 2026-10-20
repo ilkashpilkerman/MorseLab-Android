@@ -55,6 +55,7 @@ private fun MorseApp() {
     var wpm by remember { mutableIntStateOf(15) }
     var frequency by remember { mutableFloatStateOf(700f) }
     var code by remember { mutableStateOf("") }
+    var lastCompletedCode by remember { mutableStateOf("") }
     var result by remember { mutableStateOf("—") }
     var transcript by remember { mutableStateOf("") }
     var score by remember { mutableIntStateOf(0) }
@@ -77,6 +78,7 @@ private fun MorseApp() {
         val letter = MorseEngine.decode(code)
         result = letter?.toString() ?: "?"
         transcript += result
+        lastCompletedCode = code
         if (mode == Mode.TARGET || mode == Mode.BLIND || mode == Mode.SPEED) {
             attempts++
             if (letter == target) score++
@@ -107,7 +109,7 @@ private fun MorseApp() {
     }
     // Held-key race guard: after releasing, the timeout above is launched by lastSignal change.
     LaunchedEffect(mode) {
-        code = ""; result = "—"; transcript = ""; score = 0; attempts = 0
+        code = ""; lastCompletedCode = ""; result = "—"; transcript = ""; score = 0; attempts = 0
         secondsRemaining = 60; target = MorseEngine.codes.keys.filter { it.isLetter() }.random()
     }
     LaunchedEffect(mode) {
@@ -167,7 +169,7 @@ private fun MorseApp() {
                 Column {
                     Text(if (mode == Mode.FREE) "СИГНАЛ" else if (mode == Mode.LISTEN) "СЛУШАЙ" else "ЗАДАНИЕ",
                         color = Muted, fontSize = 10.sp)
-                    Text(if (mode == Mode.FREE) code.ifEmpty { "···" }
+                    Text(if (mode == Mode.FREE) code.ifEmpty { lastCompletedCode.ifEmpty { "···" } }
                     else if (mode == Mode.LISTEN) "?" else target.toString(),
                         color = Gold, fontWeight = FontWeight.Bold, fontSize = 25.sp)
                 }
@@ -241,7 +243,7 @@ private fun MorseApp() {
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = { code = ""; result = "—" }) { Text("Сброс", fontSize = 12.sp) }
+                    TextButton(onClick = { code = ""; lastCompletedCode = ""; result = "—" }) { Text("Сброс", fontSize = 12.sp) }
                     TextButton(onClick = { finishLetter() }) { Text("Готово", fontSize = 12.sp) }
                     if (mode == Mode.TARGET || mode == Mode.BLIND) {
                         TextButton(onClick = { target = MorseEngine.codes.keys.filter { it.isLetter() }.random(); code = "" }) {
