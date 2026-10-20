@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.geometry.Size
@@ -309,14 +310,14 @@ private fun MorseApp() {
 private val boardPoints = mapOf(
     "" to Pair(.46f, .10f),
     "." to Pair(.57f, .10f), "-" to Pair(.35f, .10f),
-    ".." to Pair(.69f, .10f), ".-" to Pair(.57f, .49f),
+    ".." to Pair(.69f, .10f), ".-" to Pair(.57f, .56f),
     "-." to Pair(.35f, .49f), "--" to Pair(.22f, .10f),
-    "..." to Pair(.81f, .10f), "..-" to Pair(.69f, .29f),
-    ".-." to Pair(.70f, .49f), ".--" to Pair(.57f, .75f),
+    "..." to Pair(.81f, .10f), "..-" to Pair(.69f, .27f),
+    ".-." to Pair(.70f, .56f), ".--" to Pair(.57f, .75f),
     "-.." to Pair(.35f, .75f), "-.-" to Pair(.22f, .49f),
     "--." to Pair(.22f, .29f), "---" to Pair(.09f, .10f),
     "...." to Pair(.93f, .10f), "...-" to Pair(.81f, .29f),
-    "..-." to Pair(.69f, .39f), ".-.." to Pair(.83f, .49f),
+    "..-." to Pair(.69f, .37f), ".-.." to Pair(.84f, .56f),
     ".--." to Pair(.69f, .75f), ".---" to Pair(.57f, .90f),
     "-..." to Pair(.35f, .90f), "-..-" to Pair(.22f, .75f),
     "-.-." to Pair(.22f, .64f), "-.--" to Pair(.09f, .49f),
@@ -328,8 +329,8 @@ private val boardPoints = mapOf(
     "----." to Pair(.07f, .85f), "-----" to Pair(.07f, .95f),
     // Additional nodes used by the Russian alphabet.
     "---." to Pair(.09f, .21f), "----" to Pair(.09f, .35f),
-    "..--" to Pair(.73f, .59f), ".-.-" to Pair(.82f, .59f),
-    "..-.." to Pair(.73f, .45f), "--.--" to Pair(.09f, .42f)
+    "..--" to Pair(.83f, .37f), ".-.-" to Pair(.70f, .68f),
+    "..-.." to Pair(.69f, .45f), "--.--" to Pair(.09f, .42f)
 )
 
 @Composable
@@ -347,6 +348,8 @@ private fun MorseBoard(code: String, showDigits: Boolean, alphabet: Alphabet, mo
         val paths = codes.filterKeys { showDigits || it.isLetter() }
             .entries.map { it.value }.toSet()
         paths.forEach { path ->
+            // Separate bridge track is drawn last, above the regular wires.
+            if (path == "..--") return@forEach
             val parentPath = path.dropLast(1)
             if (parentPath.isNotEmpty() && parentPath !in paths) return@forEach
             val parent = pos(parentPath)
@@ -363,6 +366,32 @@ private fun MorseBoard(code: String, showDigits: Boolean, alphabet: Alphabet, mo
                 drawLine(ink, parent, junction, strokeWidth = stroke)
                 drawLine(ink, junction, child, strokeWidth = stroke)
             }
+        }
+        // Russian Ю (..--): independent raised cyan bridge over the Ж vertical.
+        // The tiny background-colored interruption in the crossing wire is
+        // intentional: it visually indicates that the two tracks do not join.
+        if ("..--" in paths) {
+            val from = pos("..-")  // У
+            val to = pos("..--")  // Ю
+            val bridgeY = h * .235f
+            val crossingX = pos("...").x // vertical С → Ж
+            val bridgeColor = if (code.startsWith("..--")) Gold else Color(0xFF4ADBE8)
+            val bridgeWidth = if (code.startsWith("..--")) 3.4.dp.toPx() else 2.4.dp.toPx()
+            val gap = 5.dp.toPx()
+            // Break ONLY the other branch at the crossing point.
+            drawLine(Panel, Offset(crossingX, bridgeY - gap),
+                Offset(crossingX, bridgeY + gap), strokeWidth = 5.dp.toPx(),
+                cap = StrokeCap.Round)
+            val bridge = Path().apply {
+                moveTo(from.x, from.y)
+                lineTo(from.x, bridgeY)
+                lineTo(to.x, bridgeY)
+                lineTo(to.x, to.y)
+            }
+            drawPath(bridge, bridgeColor, style = Stroke(
+                width = bridgeWidth, cap = StrokeCap.Round,
+                join = androidx.compose.ui.graphics.StrokeJoin.Round
+            ))
         }
         paths.forEach { path ->
             val center = pos(path)
