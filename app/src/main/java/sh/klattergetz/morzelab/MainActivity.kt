@@ -7,9 +7,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -20,6 +18,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -60,11 +59,13 @@ private fun MorseApp() {
     var transcript by remember { mutableStateOf("") }
     var score by remember { mutableIntStateOf(0) }
     var attempts by remember { mutableIntStateOf(0) }
-    var target by remember { mutableStateOf(MorseEngine.codes.keys.random()) }
+    var target by remember { mutableStateOf(MorseEngine.codes.keys.filter { it.isLetter() }.random()) }
     var held by remember { mutableStateOf(false) }
     var startTime by remember { mutableLongStateOf(0L) }
     var lastSignal by remember { mutableLongStateOf(0L) }
-    var clock by remember { mutableLongStateOf(0L) }
+    var settingsOpen by remember { mutableStateOf(false) }
+    var modeMenuOpen by remember { mutableStateOf(false) }
+    var showDigits by remember { mutableStateOf(false) }
     var secondsRemaining by remember { mutableIntStateOf(60) }
     var playback by remember { mutableStateOf(false) }
     // Standard PARIS timing: dot=1200/WPM ms, dash=3 dots, character gap=3 dots.
@@ -79,7 +80,7 @@ private fun MorseApp() {
         if (mode == Mode.TARGET || mode == Mode.BLIND || mode == Mode.SPEED) {
             attempts++
             if (letter == target) score++
-            target = MorseEngine.codes.keys.random()
+            target = MorseEngine.codes.keys.filter { it.isLetter() }.random()
         }
         code = ""
     }
@@ -97,7 +98,7 @@ private fun MorseApp() {
         lastSignal = SystemClock.elapsedRealtime()
     }
 
-    LaunchedEffect(code, lastSignal, wpm, playback) {
+    LaunchedEffect(code, lastSignal, wpm, playback, held) {
         if (code.isNotEmpty() && !playback) {
             val stamp = lastSignal
             delay(dotMs * 3)
@@ -107,7 +108,7 @@ private fun MorseApp() {
     // Held-key race guard: after releasing, the timeout above is launched by lastSignal change.
     LaunchedEffect(mode) {
         code = ""; result = "—"; transcript = ""; score = 0; attempts = 0
-        secondsRemaining = 60; target = MorseEngine.codes.keys.random()
+        secondsRemaining = 60; target = MorseEngine.codes.keys.filter { it.isLetter() }.random()
     }
     LaunchedEffect(mode) {
         if (mode == Mode.SPEED) {
@@ -132,159 +133,246 @@ private fun MorseApp() {
 
     MaterialTheme(colorScheme = darkColorScheme(primary = Mint, surface = Panel, background = Background)) {
         Column(
-            Modifier.fillMaxSize().background(Background).padding(horizontal = 16.dp),
+            modifier = Modifier.fillMaxSize().background(Background)
+                .statusBarsPadding().navigationBarsPadding()
+                .padding(horizontal = 12.dp, vertical = 5.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(Modifier.height(12.dp))
-            Text("MORSE / LAB", color = White, fontWeight = FontWeight.Black, fontSize = 26.sp, letterSpacing = 4.sp)
-            Text("СЛУШАЙ  •  НАЖИМАЙ  •  ЗАПОМИНАЙ", color = Muted, fontSize = 10.sp, letterSpacing = 1.sp)
-            Spacer(Modifier.height(12.dp))
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Mode.entries.forEach { item ->
-                    FilterChip(selected = item == mode, onClick = { mode = item }, label = { Text(item.label) })
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                Column {
-                    Text(when (mode) {
-                        Mode.FREE -> "ТВОЙ СИГНАЛ"
-                        Mode.LISTEN -> "УЗНАЙ НА СЛУХ"
-                        else -> "ПЕРЕДАЙ БУКВУ"
-                    }, color = Muted, fontSize = 11.sp)
-                    Text(if (mode == Mode.FREE) "${if (code.isEmpty()) "· · ·" else code}" else if (mode == Mode.LISTEN) "?" else "$target", color = Gold, fontSize = 35.sp, fontWeight = FontWeight.Bold)
-                }
-                Column(horizontalAlignment = Alignment.End) {
-                    Text("РАСШИФРОВКА", color = Muted, fontSize = 11.sp)
-                    Text(result, color = Mint, fontSize = 30.sp, fontWeight = FontWeight.Bold)
-                }
-            }
-            if (mode == Mode.SPEED) Text("Время: $secondsRemaining с   •   Счёт: $score/$attempts", color = Gold)
-            if (mode == Mode.TARGET || mode == Mode.BLIND) Text("Правильно: $score из $attempts", color = Muted)
-            Spacer(Modifier.height(8.dp))
-            if (mode != Mode.BLIND && mode != Mode.LISTEN) {
-                Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth().weight(1f)) {
-                    Column(Modifier.fillMaxSize().padding(10.dp)) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("ДЕРЕВО МОРЗЕ", color = White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            Text("● точка    ▬ тире", color = Muted, fontSize = 10.sp)
+            // Only two toolbar controls: mode picker and settings.
+            Row(
+                modifier = Modifier.fillMaxWidth().height(44.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("MORSE / LAB", color = White, fontWeight = FontWeight.Black,
+                    fontSize = 19.sp, letterSpacing = 2.sp, modifier = Modifier.weight(1f))
+                Box {
+                    TextButton(onClick = { modeMenuOpen = true }) {
+                        Text("${mode.label} ▾", color = Mint, fontSize = 13.sp)
+                    }
+                    DropdownMenu(expanded = modeMenuOpen, onDismissRequest = { modeMenuOpen = false }) {
+                        Mode.entries.forEach { item ->
+                            DropdownMenuItem(
+                                text = { Text(item.label) },
+                                onClick = { mode = item; modeMenuOpen = false }
+                            )
                         }
-                        MorseTree(code = code, modifier = Modifier.fillMaxSize())
+                    }
+                }
+                IconButton(onClick = { settingsOpen = true }) {
+                    Text("⚙", color = White, fontSize = 24.sp)
+                }
+            }
+            Row(Modifier.fillMaxWidth().height(59.dp), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween) {
+                Column {
+                    Text(if (mode == Mode.FREE) "СИГНАЛ" else if (mode == Mode.LISTEN) "СЛУШАЙ" else "ЗАДАНИЕ",
+                        color = Muted, fontSize = 10.sp)
+                    Text(if (mode == Mode.FREE) code.ifEmpty { "···" }
+                    else if (mode == Mode.LISTEN) "?" else target.toString(),
+                        color = Gold, fontWeight = FontWeight.Bold, fontSize = 25.sp)
+                }
+                if (mode == Mode.SPEED) Text("${secondsRemaining}с  •  $score/$attempts", color = Gold)
+                if (mode == Mode.TARGET || mode == Mode.BLIND) Text("$score/$attempts", color = Muted)
+                Column(horizontalAlignment = Alignment.End) {
+                    Text("БУКВА", color = Muted, fontSize = 10.sp)
+                    Text(result, color = Mint, fontWeight = FontWeight.Bold,
+                        fontSize = 25.sp, maxLines = 1)
+                }
+            }
+            if (mode != Mode.BLIND && mode != Mode.LISTEN) {
+                Card(
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    colors = CardDefaults.cardColors(containerColor = Panel),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(Modifier.fillMaxSize().padding(6.dp)) {
+                        // Diagram takes all remaining space and never scrolls.
+                        MorseBoard(code = code, showDigits = showDigits,
+                            modifier = Modifier.fillMaxSize())
                     }
                 }
             } else {
-                Box(Modifier.fillMaxWidth().weight(1f).background(Panel, RoundedCornerShape(20.dp)), contentAlignment = Alignment.Center) {
-                    Text(if (mode == Mode.LISTEN) "♫\nПрослушай сигнал и выбери букву" else "◉\nОриентируйся на звук", color = Muted, textAlign = TextAlign.Center, fontSize = 20.sp)
+                Box(Modifier.fillMaxWidth().weight(1f).background(Panel, RoundedCornerShape(16.dp)),
+                    contentAlignment = Alignment.Center) {
+                    Text(if (mode == Mode.LISTEN) "♫  СЛУШАЙ СИГНАЛ" else "◉  БЕЗ ПОДСКАЗОК",
+                        color = Muted, textAlign = TextAlign.Center)
                 }
             }
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(7.dp))
             if (mode == Mode.LISTEN) {
-                Button(onClick = { scope.launch { playTarget() } }, enabled = !playback, modifier = Modifier.fillMaxWidth()) { Text("▶  ПРОСЛУШАТЬ") }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    val choices = remember(target) { (listOf(target) + MorseEngine.codes.keys.filter { it != target }.shuffled().take(3)).shuffled() }
+                Button(onClick = { scope.launch { playTarget() } }, enabled = !playback,
+                    modifier = Modifier.fillMaxWidth().height(48.dp)) { Text("▶ ПРОСЛУШАТЬ") }
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    val choices = remember(target) {
+                        (listOf(target) + MorseEngine.codes.keys.filter { it != target }
+                            .shuffled().take(3)).shuffled()
+                    }
                     choices.forEach { ch ->
                         OutlinedButton(onClick = {
                             attempts++
                             if (ch == target) score++
                             result = if (ch == target) "Верно!" else "Было $target"
-                            target = MorseEngine.codes.keys.random()
+                            target = MorseEngine.codes.keys.filter { it.isLetter() }.random()
                         }, modifier = Modifier.weight(1f)) { Text(ch.toString()) }
                     }
                 }
-                Text("Правильно: $score из $attempts", color = Muted)
+                Text("Правильно: $score из $attempts", color = Muted, fontSize = 12.sp)
             } else {
-                Text("УДЕРЖИВАЙ КНОПКУ • коротко = · • долго = −", color = Muted, fontSize = 11.sp)
-                Spacer(Modifier.height(8.dp))
                 val enabled = mode != Mode.SPEED || secondsRemaining > 0
                 Box(
-                    Modifier.size(148.dp).background(if (held) Coral else Mint, RoundedCornerShape(75.dp))
-                        .pointerInput(enabled, dotMs, playback, code) {
+                    modifier = Modifier.size(112.dp)
+                        .background(if (held) Coral else Mint, RoundedCornerShape(60.dp))
+                        .pointerInput(enabled, dotMs, playback) {
                             if (enabled && !playback) detectTapGestures(onPress = {
                                 held = true
                                 startTime = SystemClock.elapsedRealtime()
                                 tone.start()
-                                tryAwaitRelease()
+                                val released = tryAwaitRelease()
                                 tone.stop()
                                 val duration = SystemClock.elapsedRealtime() - startTime
                                 held = false
-                                addSignal(if (duration < dotMs * 2) '.' else '-')
+                                if (released) addSignal(if (duration < dotMs * 2) '.' else '-')
                             })
                         },
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(if (held) "●" else "KEY", fontSize = 33.sp, fontWeight = FontWeight.Black, color = Background)
+                    Text(if (held) "●" else "KEY", fontSize = 27.sp,
+                        fontWeight = FontWeight.Black, color = Background)
                 }
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { code = ""; result = "—" }) { Text("Сброс") }
-                    OutlinedButton(onClick = { finishLetter() }) { Text("Завершить букву") }
-                    if (mode == Mode.TARGET || mode == Mode.BLIND) OutlinedButton(onClick = { target = MorseEngine.codes.keys.random(); code = "" }) { Text("Пропустить") }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = { code = ""; result = "—" }) { Text("Сброс", fontSize = 12.sp) }
+                    TextButton(onClick = { finishLetter() }) { Text("Готово", fontSize = 12.sp) }
+                    if (mode == Mode.TARGET || mode == Mode.BLIND) {
+                        TextButton(onClick = { target = MorseEngine.codes.keys.filter { it.isLetter() }.random(); code = "" }) {
+                            Text("Пропуск", fontSize = 12.sp)
+                        }
+                    }
                 }
             }
-            Spacer(Modifier.height(6.dp))
-            Text("Текст: ${transcript.takeLast(32)}", color = White, maxLines = 1)
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("${wpm} WPM", color = Muted, fontSize = 12.sp)
-                Slider(value = wpm.toFloat(), onValueChange = { wpm = it.toInt().coerceIn(5, 35) }, valueRange = 5f..35f, modifier = Modifier.weight(1f))
-            }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("${frequency.toInt()} Hz", color = Muted, fontSize = 12.sp)
-                Slider(value = frequency, onValueChange = { frequency = it }, valueRange = 400f..1000f, modifier = Modifier.weight(1f))
-            }
-            Spacer(Modifier.height(8.dp))
+            Text("ТЕКСТ: ${transcript.takeLast(32)}", modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Center, color = White, fontSize = 13.sp,
+                maxLines = 1)
+        }
+        if (settingsOpen) {
+            AlertDialog(
+                onDismissRequest = { settingsOpen = false },
+                title = { Text("Настройки тренажёра") },
+                text = {
+                    Column {
+                        Text("Скорость: $wpm WPM")
+                        Slider(value = wpm.toFloat(), onValueChange = { wpm = it.toInt() },
+                            valueRange = 5f..35f)
+                        Text("Частота тона: ${frequency.toInt()} Hz")
+                        Slider(value = frequency, onValueChange = { frequency = it },
+                            valueRange = 400f..1000f)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Показывать цифры", modifier = Modifier.weight(1f))
+                            Switch(checked = showDigits, onCheckedChange = { showDigits = it })
+                        }
+                        Text("Точка = 1200 / WPM мс. Тире = 3 точки.",
+                            color = Muted, fontSize = 12.sp)
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { settingsOpen = false }) { Text("Готово") }
+                }
+            )
         }
     }
 }
 
-/** Position is derived from binary tree index, never from a hard-coded UI label chart. */
+/** Compact board geometry is inspired by the physical Morse card, not a wide binary tree. */
+private val boardPoints = mapOf(
+    "" to Pair(.46f, .10f),
+    "." to Pair(.57f, .10f), "-" to Pair(.35f, .10f),
+    ".." to Pair(.69f, .10f), ".-" to Pair(.57f, .49f),
+    "-." to Pair(.35f, .49f), "--" to Pair(.22f, .10f),
+    "..." to Pair(.81f, .10f), "..-" to Pair(.69f, .29f),
+    ".-." to Pair(.70f, .49f), ".--" to Pair(.57f, .75f),
+    "-.." to Pair(.35f, .75f), "-.-" to Pair(.22f, .49f),
+    "--." to Pair(.22f, .29f), "---" to Pair(.09f, .10f),
+    "...." to Pair(.93f, .10f), "...-" to Pair(.81f, .29f),
+    "..-." to Pair(.69f, .39f), ".-.." to Pair(.83f, .49f),
+    ".--." to Pair(.69f, .75f), ".---" to Pair(.57f, .90f),
+    "-..." to Pair(.35f, .90f), "-..-" to Pair(.22f, .75f),
+    "-.-." to Pair(.22f, .64f), "-.--" to Pair(.09f, .49f),
+    "--.." to Pair(.22f, .39f), "--.-" to Pair(.09f, .29f),
+    "....." to Pair(.92f, .22f), "....-" to Pair(.90f, .32f),
+    "...--" to Pair(.85f, .40f), "..---" to Pair(.80f, .45f),
+    ".----" to Pair(.70f, .91f), "-...." to Pair(.42f, .95f),
+    "--..." to Pair(.16f, .95f), "---.." to Pair(.07f, .75f),
+    "----." to Pair(.07f, .85f), "-----" to Pair(.07f, .95f)
+)
+
 @Composable
-private fun MorseTree(code: String, modifier: Modifier = Modifier) {
-    // Five levels: last row includes numbers. A horizontally scrollable chart keeps nodes legible.
-    BoxWithConstraints(modifier) {
-        val width = maxOf(maxWidth, 920.dp)
-        val scroll = rememberScrollState()
-        Box(Modifier.fillMaxSize().horizontalScroll(scroll)) {
-            Canvas(Modifier.width(width).fillMaxHeight()) {
-                val w = size.width
-                val h = size.height
-                val gapY = h / 6f
-                fun position(path: String): Offset {
-                    var index = 0
-                    path.forEach { index = index * 2 + if (it == '.') 0 else 1 }
-                    val slots = 1 shl path.length
-                    return Offset((index + .5f) * w / slots, (path.length + .48f) * gapY)
-                }
-                for (depth in 1..5) {
-                    MorseEngine.codes.values.filter { it.length == depth }.forEach { path ->
-                        val parent = position(path.dropLast(1))
-                        val child = position(path)
-                        val selected = code.startsWith(path)
-                        drawLine(if (selected) Mint else Color(0xFF3C506D), parent, child, strokeWidth = if (selected) 4.dp.toPx() else 1.6.dp.toPx(), cap = StrokeCap.Round)
-                    }
-                }
-                MorseEngine.codes.forEach { (letter, path) ->
-                    val center = position(path)
-                    val selected = code.startsWith(path)
-                    val radius = 11.dp.toPx()
-                    val color = if (selected) (if (path.last() == '.') Mint else Coral) else Color(0xFF25364B)
-                    if (path.last() == '.') {
-                        drawCircle(color, radius, center)
-                        drawCircle(if (selected) White else Muted, radius, center, style = Stroke(1.2.dp.toPx()))
-                    } else {
-                        drawRect(color, Offset(center.x - radius, center.y - radius * .75f), androidx.compose.ui.geometry.Size(radius * 2, radius * 1.5f))
-                    }
-                    drawContext.canvas.nativeCanvas.apply {
-                        val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-                            this.color = android.graphics.Color.WHITE
-                            textAlign = android.graphics.Paint.Align.CENTER
-                            textSize = 12.sp.toPx()
-                            isFakeBoldText = selected
-                        }
-                        drawText(letter.toString(), center.x, center.y - radius - 5.dp.toPx(), p)
-                    }
-                }
-                drawCircle(Gold, 5.dp.toPx(), position(""))
+private fun MorseBoard(code: String, showDigits: Boolean, modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val w = size.width
+        val h = size.height
+        val scale = minOf(w, h * .78f)
+        val radius = (scale * .029f).coerceAtLeast(6.dp.toPx())
+        fun pos(path: String): Offset {
+            val p = boardPoints.getValue(path)
+            return Offset(p.first * w, p.second * h)
+        }
+        val paths = MorseEngine.codes.filterKeys { showDigits || it.isLetter() }
+            .entries.map { it.value }.toSet()
+        paths.forEach { path ->
+            val parentPath = path.dropLast(1)
+            if (parentPath.isNotEmpty() && parentPath !in paths) return@forEach
+            val parent = pos(parentPath)
+            val child = pos(path)
+            val active = code.startsWith(path)
+            val ink = if (active) Mint else Color(0xFF435777)
+            // Simple orthogonal tracks, like the printed circuit on the reference card.
+            val stroke = if (active) 3.dp.toPx() else 1.5.dp.toPx()
+            if (kotlin.math.abs(parent.y - child.y) < h * .025f ||
+                kotlin.math.abs(parent.x - child.x) < w * .025f) {
+                drawLine(ink, parent, child, strokeWidth = stroke)
+            } else {
+                val junction = Offset(parent.x, child.y)
+                drawLine(ink, parent, junction, strokeWidth = stroke)
+                drawLine(ink, junction, child, strokeWidth = stroke)
             }
+        }
+        paths.forEach { path ->
+            val center = pos(path)
+            val active = code.startsWith(path)
+            val dot = path.last() == '.'
+            val fill = if (active) (if (dot) Mint else Coral) else Color(0xFF26384F)
+            if (active) drawCircle(fill.copy(alpha = .20f), radius * 1.60f, center)
+            if (dot) {
+                drawCircle(fill, radius, center)
+                drawCircle(if (active) White else Muted, radius, center,
+                    style = Stroke(1.dp.toPx()))
+            } else {
+                drawRect(fill, Offset(center.x - radius, center.y - radius * .77f),
+                    Size(radius * 2f, radius * 1.54f))
+                drawRect(if (active) White else Muted,
+                    Offset(center.x - radius, center.y - radius * .77f),
+                    Size(radius * 2f, radius * 1.54f), style = Stroke(1.dp.toPx()))
+            }
+            val letter = MorseEngine.decode(path) ?: return@forEach
+            drawContext.canvas.nativeCanvas.apply {
+                val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                    color = android.graphics.Color.WHITE
+                    textAlign = android.graphics.Paint.Align.CENTER
+                    textSize = (radius * .89f).coerceIn(9.sp.toPx(), 15.sp.toPx())
+                    isFakeBoldText = active
+                }
+                drawText(letter.toString(), center.x, center.y - radius - 4.dp.toPx(), paint)
+            }
+        }
+        val root = pos("")
+        drawCircle(Gold, radius * .30f, root)
+        drawContext.canvas.nativeCanvas.apply {
+            val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                color = android.graphics.Color.YELLOW
+                textAlign = android.graphics.Paint.Align.CENTER
+                textSize = radius * 1.5f
+            }
+            drawText("▼", root.x, root.y - radius, paint)
         }
     }
 }
