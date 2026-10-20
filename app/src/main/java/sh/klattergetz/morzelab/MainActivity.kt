@@ -1,6 +1,7 @@
 package sh.klattergetz.morzelab
 
 import android.os.Bundle
+import androidx.compose.ui.platform.LocalContext
 import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -35,6 +36,8 @@ private val Gold = Color(0xFFFFD186)
 private val Muted = Color(0xFF93A7C1)
 private val White = Color(0xFFF4F8FF)
 
+private enum class Alphabet(val label: String) { RU("Русский"), EN("English") }
+
 private enum class Mode(val label: String) {
     FREE("Свободно"), TARGET("Кодируй"), LISTEN("Слушай"), BLIND("Без схемы"), SPEED("На скорость")
 }
@@ -51,6 +54,11 @@ private fun MorseApp() {
     val tone = remember { MorseTone() }
     DisposableEffect(Unit) { onDispose { tone.release() } }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val prefs = remember(context) { context.getSharedPreferences("morse_settings", android.content.Context.MODE_PRIVATE) }
+    var alphabet by remember { mutableStateOf(if (prefs.getString("alphabet", "RU") == "EN") Alphabet.EN else Alphabet.RU) }
+    val activeCodes = if (alphabet == Alphabet.RU) MorseEngine.russianCodes else MorseEngine.codes
+    val trainingLetters = activeCodes.keys.filter { it.isLetter() && it != 'Ё' }
     var mode by remember { mutableStateOf(Mode.FREE) }
     var wpm by remember { mutableIntStateOf(15) }
     var frequency by remember { mutableFloatStateOf(700f) }
@@ -60,7 +68,7 @@ private fun MorseApp() {
     var transcript by remember { mutableStateOf("") }
     var score by remember { mutableIntStateOf(0) }
     var attempts by remember { mutableIntStateOf(0) }
-    var target by remember { mutableStateOf(MorseEngine.codes.keys.filter { it.isLetter() }.random()) }
+    var target by remember { mutableStateOf(trainingLetters.random()) }
     var held by remember { mutableStateOf(false) }
     var startTime by remember { mutableLongStateOf(0L) }
     var lastSignal by remember { mutableLongStateOf(0L) }
@@ -75,14 +83,14 @@ private fun MorseApp() {
 
     fun finishLetter() {
         if (code.isEmpty()) return
-        val letter = MorseEngine.decode(code)
+        val letter = MorseEngine.decode(code, alphabet == Alphabet.RU)
         result = letter?.toString() ?: "?"
         transcript += result
         lastCompletedCode = code
         if (mode == Mode.TARGET || mode == Mode.BLIND || mode == Mode.SPEED) {
             attempts++
             if (letter == target) score++
-            target = MorseEngine.codes.keys.filter { it.isLetter() }.random()
+            target = trainingLetters.random()
         }
         code = ""
     }
@@ -90,12 +98,12 @@ private fun MorseApp() {
     fun addSignal(signal: Char) {
         if (playback) return
         val next = code + signal
-        if (next.length > 5 || !MorseEngine.codes.values.any { it.startsWith(next) }) {
+        if (next.length > 5 || !activeCodes.values.any { it.startsWith(next) }) {
             result = "Неверная ветка"
             code = ""
         } else {
             code = next
-            result = MorseEngine.decode(code)?.toString() ?: "…"
+            result = MorseEngine.decode(code, alphabet == Alphabet.RU)?.toString() ?: "…"
         }
         lastSignal = SystemClock.elapsedRealtime()
     }
@@ -108,9 +116,9 @@ private fun MorseApp() {
         }
     }
     // Held-key race guard: after releasing, the timeout above is launched by lastSignal change.
-    LaunchedEffect(mode) {
+    LaunchedEffect(mode, alphabet) {
         code = ""; lastCompletedCode = ""; result = "—"; transcript = ""; score = 0; attempts = 0
-        secondsRemaining = 60; target = MorseEngine.codes.keys.filter { it.isLetter() }.random()
+        secondsRemaining = 60; target = trainingLetters.random()
     }
     LaunchedEffect(mode) {
         if (mode == Mode.SPEED) {
@@ -123,7 +131,7 @@ private fun MorseApp() {
         playback = true
         tone.stop()
         delay(80)
-        val targetCode = MorseEngine.codes[target] ?: ""
+        val targetCode = activeCodes[target] ?: ""
         for (signal in targetCode) {
             tone.start()
             delay(dotMs * if (signal == '.') 1 else 3)
@@ -189,7 +197,7 @@ private fun MorseApp() {
                 ) {
                     Column(Modifier.fillMaxSize().padding(6.dp)) {
                         // Diagram takes all remaining space and never scrolls.
-                        MorseBoard(code = code, showDigits = showDigits,
+                        MorseBoard(code = code, showDigits = showDigits, alphabet = alphabet,
                             modifier = Modifier.fillMaxSize())
                     }
                 }
@@ -206,7 +214,7 @@ private fun MorseApp() {
                     modifier = Modifier.fillMaxWidth().height(48.dp)) { Text("▶ ПРОСЛУШАТЬ") }
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     val choices = remember(target) {
-                        (listOf(target) + MorseEngine.codes.keys.filter { it != target }
+                        (listOf(target) + trainingLetters.filter { it != target }
                             .shuffled().take(3)).shuffled()
                     }
                     choices.forEach { ch ->
@@ -214,7 +222,7 @@ private fun MorseApp() {
                             attempts++
                             if (ch == target) score++
                             result = if (ch == target) "Верно!" else "Было $target"
-                            target = MorseEngine.codes.keys.filter { it.isLetter() }.random()
+                            target = trainingLetters.random()
                         }, modifier = Modifier.weight(1f)) { Text(ch.toString()) }
                     }
                 }
@@ -246,7 +254,7 @@ private fun MorseApp() {
                     TextButton(onClick = { code = ""; lastCompletedCode = ""; result = "—" }) { Text("Сброс", fontSize = 12.sp) }
                     TextButton(onClick = { finishLetter() }) { Text("Готово", fontSize = 12.sp) }
                     if (mode == Mode.TARGET || mode == Mode.BLIND) {
-                        TextButton(onClick = { target = MorseEngine.codes.keys.filter { it.isLetter() }.random(); code = "" }) {
+                        TextButton(onClick = { target = trainingLetters.random(); code = "" }) {
                             Text("Пропуск", fontSize = 12.sp)
                         }
                     }
@@ -262,6 +270,19 @@ private fun MorseApp() {
                 title = { Text("Настройки тренажёра") },
                 text = {
                     Column {
+                        Text("Алфавит", color = Muted, fontSize = 12.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Alphabet.entries.forEach { language ->
+                                FilterChip(
+                                    selected = alphabet == language,
+                                    onClick = {
+                                        alphabet = language
+                                        prefs.edit().putString("alphabet", language.name).apply()
+                                    },
+                                    label = { Text(language.label) }
+                                )
+                            }
+                        }
                         Text("Скорость: $wpm WPM")
                         Slider(value = wpm.toFloat(), onValueChange = { wpm = it.toInt() },
                             valueRange = 5f..35f)
@@ -304,11 +325,15 @@ private val boardPoints = mapOf(
     "...--" to Pair(.85f, .40f), "..---" to Pair(.80f, .45f),
     ".----" to Pair(.70f, .91f), "-...." to Pair(.42f, .95f),
     "--..." to Pair(.16f, .95f), "---.." to Pair(.07f, .75f),
-    "----." to Pair(.07f, .85f), "-----" to Pair(.07f, .95f)
+    "----." to Pair(.07f, .85f), "-----" to Pair(.07f, .95f),
+    // Additional nodes used by the Russian alphabet.
+    "---." to Pair(.09f, .21f), "----" to Pair(.09f, .35f),
+    "..--" to Pair(.73f, .59f), ".-.-" to Pair(.82f, .59f),
+    "..-.." to Pair(.73f, .45f), "--.--" to Pair(.09f, .42f)
 )
 
 @Composable
-private fun MorseBoard(code: String, showDigits: Boolean, modifier: Modifier = Modifier) {
+private fun MorseBoard(code: String, showDigits: Boolean, alphabet: Alphabet, modifier: Modifier = Modifier) {
     Canvas(modifier) {
         val w = size.width
         val h = size.height
@@ -318,7 +343,8 @@ private fun MorseBoard(code: String, showDigits: Boolean, modifier: Modifier = M
             val p = boardPoints.getValue(path)
             return Offset(p.first * w, p.second * h)
         }
-        val paths = MorseEngine.codes.filterKeys { showDigits || it.isLetter() }
+        val codes = if (alphabet == Alphabet.RU) MorseEngine.russianCodes else MorseEngine.codes
+        val paths = codes.filterKeys { showDigits || it.isLetter() }
             .entries.map { it.value }.toSet()
         paths.forEach { path ->
             val parentPath = path.dropLast(1)
@@ -355,7 +381,7 @@ private fun MorseBoard(code: String, showDigits: Boolean, modifier: Modifier = M
                     Offset(center.x - radius, center.y - radius * .77f),
                     Size(radius * 2f, radius * 1.54f), style = Stroke(1.dp.toPx()))
             }
-            val letter = MorseEngine.decode(path) ?: return@forEach
+            val letter = MorseEngine.decode(path, alphabet == Alphabet.RU) ?: return@forEach
             drawContext.canvas.nativeCanvas.apply {
                 val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
                     color = android.graphics.Color.WHITE
