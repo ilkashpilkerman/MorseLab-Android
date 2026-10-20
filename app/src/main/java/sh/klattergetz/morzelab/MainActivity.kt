@@ -149,16 +149,33 @@ private fun MorseApp() {
                 .padding(horizontal = 12.dp, vertical = 5.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Only two toolbar controls: mode picker and settings.
+            // Compact header: last signal, decoded letter, mode and settings.
             Row(
-                modifier = Modifier.fillMaxWidth().height(44.dp),
+                modifier = Modifier.fillMaxWidth().height(58.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("MORSE / LAB", color = White, fontWeight = FontWeight.Black,
-                    fontSize = 19.sp, letterSpacing = 2.sp, modifier = Modifier.weight(1f))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        if (mode == Mode.FREE) "СИГНАЛ" else if (mode == Mode.LISTEN) "СЛУШАЙ" else "ЗАДАНИЕ",
+                        color = Muted, fontSize = 10.sp
+                    )
+                    Text(
+                        if (mode == Mode.FREE) code.ifEmpty { lastCompletedCode.ifEmpty { "···" } }
+                        else if (mode == Mode.LISTEN) "?" else target.toString(),
+                        color = Gold, fontWeight = FontWeight.Bold, fontSize = 24.sp,
+                        maxLines = 1
+                    )
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("БУКВА", color = Muted, fontSize = 10.sp)
+                    Text(result, color = Mint, fontWeight = FontWeight.Bold,
+                        fontSize = 24.sp, maxLines = 1)
+                }
+                Spacer(Modifier.width(6.dp))
                 Box {
                     TextButton(onClick = { modeMenuOpen = true }) {
-                        Text("${mode.label} ▾", color = Mint, fontSize = 13.sp)
+                        Text("${mode.label} ▾", color = Mint, fontSize = 12.sp,
+                            maxLines = 1)
                     }
                     DropdownMenu(expanded = modeMenuOpen, onDismissRequest = { modeMenuOpen = false }) {
                         Mode.entries.forEach { item ->
@@ -169,27 +186,24 @@ private fun MorseApp() {
                         }
                     }
                 }
-                IconButton(onClick = { settingsOpen = true }) {
-                    Text("⚙", color = White, fontSize = 24.sp)
+                IconButton(onClick = { settingsOpen = true }, modifier = Modifier.size(40.dp)) {
+                    Text("⚙", color = White, fontSize = 23.sp)
                 }
             }
-            Row(Modifier.fillMaxWidth().height(59.dp), verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween) {
-                Column {
-                    Text(if (mode == Mode.FREE) "СИГНАЛ" else if (mode == Mode.LISTEN) "СЛУШАЙ" else "ЗАДАНИЕ",
-                        color = Muted, fontSize = 10.sp)
-                    Text(if (mode == Mode.FREE) code.ifEmpty { lastCompletedCode.ifEmpty { "···" } }
-                    else if (mode == Mode.LISTEN) "?" else target.toString(),
-                        color = Gold, fontWeight = FontWeight.Bold, fontSize = 25.sp)
-                }
-                if (mode == Mode.SPEED) Text("${secondsRemaining}с  •  $score/$attempts", color = Gold)
-                if (mode == Mode.TARGET || mode == Mode.BLIND) Text("$score/$attempts", color = Muted)
-                Column(horizontalAlignment = Alignment.End) {
-                    Text("БУКВА", color = Muted, fontSize = 10.sp)
-                    Text(result, color = Mint, fontWeight = FontWeight.Bold,
-                        fontSize = 25.sp, maxLines = 1)
-                }
+            Row(
+                modifier = Modifier.fillMaxWidth().height(25.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("ТЕКСТ:", color = Muted, fontSize = 11.sp)
+                Spacer(Modifier.width(6.dp))
+                Text(transcript.takeLast(40).ifEmpty { "—" },
+                    color = White, fontSize = 13.sp, maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f))
+                if (mode == Mode.SPEED) Text("${secondsRemaining}с · $score/$attempts", color = Gold, fontSize = 11.sp)
+                if (mode == Mode.TARGET || mode == Mode.BLIND) Text("$score/$attempts", color = Muted, fontSize = 11.sp)
             }
+            Spacer(Modifier.height(5.dp))
             if (mode != Mode.BLIND && mode != Mode.LISTEN) {
                 Card(
                     modifier = Modifier.fillMaxWidth().weight(1f),
@@ -230,40 +244,51 @@ private fun MorseApp() {
                 Text("Правильно: $score из $attempts", color = Muted, fontSize = 12.sp)
             } else {
                 val enabled = mode != Mode.SPEED || secondsRemaining > 0
-                Box(
-                    modifier = Modifier.size(112.dp)
-                        .background(if (held) Coral else Mint, RoundedCornerShape(60.dp))
-                        .pointerInput(enabled, dotMs, playback) {
-                            if (enabled && !playback) detectTapGestures(onPress = {
-                                held = true
-                                startTime = SystemClock.elapsedRealtime()
-                                tone.start()
-                                val released = tryAwaitRelease()
-                                tone.stop()
-                                val duration = SystemClock.elapsedRealtime() - startTime
-                                held = false
-                                if (released) addSignal(if (duration < dotMs * 2) '.' else '-')
-                            })
-                        },
-                    contentAlignment = Alignment.Center
+                Row(
+                    modifier = Modifier.fillMaxWidth().height(116.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(if (held) "●" else "KEY", fontSize = 27.sp,
-                        fontWeight = FontWeight.Black, color = Background)
-                }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = { code = ""; lastCompletedCode = ""; result = "—"; transcript = "" }) { Text("Сброс", fontSize = 12.sp) }
-                    TextButton(onClick = { finishLetter() }) { Text("Готово", fontSize = 12.sp) }
-                    if (mode == Mode.TARGET || mode == Mode.BLIND) {
-                        TextButton(onClick = { target = trainingLetters.random(); code = "" }) {
-                            Text("Пропуск", fontSize = 12.sp)
+                    Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        TextButton(onClick = {
+                            code = ""; lastCompletedCode = ""; result = "—"; transcript = ""
+                        }) { Text("Сброс", fontSize = 12.sp, maxLines = 1) }
+                    }
+                    Box(
+                        modifier = Modifier.size(112.dp)
+                            .background(if (held) Coral else Mint, RoundedCornerShape(60.dp))
+                            .pointerInput(enabled, dotMs, playback) {
+                                if (enabled && !playback) detectTapGestures(onPress = {
+                                    held = true
+                                    startTime = SystemClock.elapsedRealtime()
+                                    tone.start()
+                                    val released = tryAwaitRelease()
+                                    tone.stop()
+                                    val duration = SystemClock.elapsedRealtime() - startTime
+                                    held = false
+                                    if (released) addSignal(if (duration < dotMs * 2) '.' else '-')
+                                })
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(if (held) "●" else "KEY", fontSize = 27.sp,
+                            fontWeight = FontWeight.Black, color = Background)
+                    }
+                    Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            TextButton(onClick = { finishLetter() }) {
+                                Text("Готово", fontSize = 12.sp, maxLines = 1)
+                            }
+                            if (mode == Mode.TARGET || mode == Mode.BLIND) {
+                                TextButton(onClick = { target = trainingLetters.random(); code = "" }) {
+                                    Text("Пропуск", fontSize = 11.sp, maxLines = 1)
+                                }
+                            }
                         }
                     }
                 }
             }
-            Text("ТЕКСТ: ${transcript.takeLast(32)}", modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Center, color = White, fontSize = 13.sp,
-                maxLines = 1)
+
         }
         if (settingsOpen) {
             AlertDialog(
@@ -321,16 +346,16 @@ private val boardPoints = mapOf(
     ".--." to Pair(.69f, .75f), ".---" to Pair(.57f, .90f),
     "-..." to Pair(.35f, .90f), "-..-" to Pair(.22f, .75f),
     "-.-." to Pair(.22f, .64f), "-.--" to Pair(.09f, .49f),
-    "--.." to Pair(.22f, .39f), "--.-" to Pair(.09f, .29f),
+    "--.." to Pair(.22f, .39f),
     "....." to Pair(.92f, .22f), "....-" to Pair(.90f, .32f),
     "...--" to Pair(.85f, .40f), "..---" to Pair(.80f, .45f),
     ".----" to Pair(.70f, .91f), "-...." to Pair(.42f, .95f),
     "--..." to Pair(.16f, .95f), "---.." to Pair(.07f, .75f),
     "----." to Pair(.07f, .85f), "-----" to Pair(.07f, .95f),
     // Additional nodes used by the Russian alphabet.
-    "---." to Pair(.09f, .21f), "----" to Pair(.09f, .35f),
+    "---." to Pair(.09f, .21f), "----" to Pair(.055f, .35f),
     "..--" to Pair(.90f, .37f), ".-.-" to Pair(.70f, .68f),
-    "..-.." to Pair(.69f, .45f), "--.--" to Pair(.09f, .42f)
+    "..-.." to Pair(.69f, .45f), "--.-" to Pair(.105f, .29f), "--.--" to Pair(.105f, .42f)
 )
 
 @Composable
@@ -347,24 +372,47 @@ private fun MorseBoard(code: String, showDigits: Boolean, alphabet: Alphabet, mo
         val codes = if (alphabet == Alphabet.RU) MorseEngine.russianCodes else MorseEngine.codes
         val paths = codes.filterKeys { showDigits || it.isLetter() }
             .entries.map { it.value }.toSet()
+        val digitPaths = if (showDigits) codes.filterKeys { it.isDigit() }
+            .values.toSet() else emptySet()
+        val baseWire = Color(0xFF435777)
+        val digitWire = Color(0xFFA99ADA) // purple: digit-only continuations
+        val digitNode = Color(0xFF493D67)
+
         paths.forEach { path ->
-            // Separate bridge track is drawn last, above the regular wires.
-            if (path == "..--") return@forEach
+            if (path == "..--") return@forEach // special У -> Ю routing below
             val parentPath = path.dropLast(1)
             if (parentPath.isNotEmpty() && parentPath !in paths) return@forEach
             val parent = pos(parentPath)
             val child = pos(path)
             val active = code.startsWith(path)
-            val ink = if (active) Mint else Color(0xFF435777)
-            // Simple orthogonal tracks, like the printed circuit on the reference card.
-            val stroke = if (active) 3.dp.toPx() else 1.5.dp.toPx()
-            if (kotlin.math.abs(parent.y - child.y) < h * .025f ||
-                kotlin.math.abs(parent.x - child.x) < w * .025f) {
-                drawLine(ink, parent, child, strokeWidth = stroke)
-            } else {
-                val junction = Offset(parent.x, child.y)
-                drawLine(ink, parent, junction, strokeWidth = stroke)
-                drawLine(ink, junction, child, strokeWidth = stroke)
+            val isDigitOnly = path in digitPaths
+            val ink = if (active) Mint else if (isDigitOnly) digitWire else baseWire
+            val stroke = if (active) 3.dp.toPx() else if (isDigitOnly) 2.dp.toPx() else 1.5.dp.toPx()
+
+            when (path) {
+                // Ч (---.) -> Ш (----): goes LEFT, then DOWN,
+                // completely bypassing Г -> Щ and Щ -> Ъ.
+                "----" -> {
+                    val track = Path().apply {
+                        moveTo(parent.x, parent.y)
+                        lineTo(child.x, parent.y)
+                        lineTo(child.x, child.y)
+                    }
+                    drawPath(track, ink, style = Stroke(width = stroke, cap = StrokeCap.Round))
+                }
+                // Щ (--.-) -> Ъ (--.--): a separate vertical lane,
+                // not shared with Ч -> Ш.
+                "--.--" -> drawLine(ink, parent, child, strokeWidth = stroke)
+                else -> {
+                    if (kotlin.math.abs(parent.y - child.y) < h * .025f ||
+                        kotlin.math.abs(parent.x - child.x) < w * .025f) {
+                        drawLine(ink, parent, child, strokeWidth = stroke)
+                    } else {
+                        val junction = Offset(parent.x, child.y)
+                        drawLine(ink, parent, junction, strokeWidth = stroke)
+                        drawLine(ink, junction, child, strokeWidth = stroke)
+                    }
+                }
             }
         }
         // Russian Ю (..--): run horizontally from У, then vertically down to Ю.
@@ -405,23 +453,23 @@ private fun MorseBoard(code: String, showDigits: Boolean, alphabet: Alphabet, mo
             val center = pos(path)
             val active = code.startsWith(path)
             val dot = path.last() == '.'
-            val fill = if (active) (if (dot) Mint else Coral) else Color(0xFF26384F)
+            val fill = if (active) (if (dot) Mint else Coral) else if (path in digitPaths) digitNode else Color(0xFF26384F)
             if (active) drawCircle(fill.copy(alpha = .20f), radius * 1.60f, center)
             if (dot) {
                 drawCircle(fill, radius, center)
-                drawCircle(if (active) White else Muted, radius, center,
+                drawCircle(if (active) White else if (path in digitPaths) digitWire else Muted, radius, center,
                     style = Stroke(1.dp.toPx()))
             } else {
                 drawRect(fill, Offset(center.x - radius, center.y - radius * .77f),
                     Size(radius * 2f, radius * 1.54f))
-                drawRect(if (active) White else Muted,
+                drawRect(if (active) White else if (path in digitPaths) digitWire else Muted,
                     Offset(center.x - radius, center.y - radius * .77f),
                     Size(radius * 2f, radius * 1.54f), style = Stroke(1.dp.toPx()))
             }
             val letter = MorseEngine.decode(path, alphabet == Alphabet.RU) ?: return@forEach
             drawContext.canvas.nativeCanvas.apply {
                 val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-                    color = android.graphics.Color.WHITE
+                    color = if (path in digitPaths && !active) android.graphics.Color.rgb(209, 195, 255) else android.graphics.Color.WHITE
                     textAlign = android.graphics.Paint.Align.CENTER
                     textSize = (radius * .89f).coerceIn(9.sp.toPx(), 15.sp.toPx())
                     isFakeBoldText = active
