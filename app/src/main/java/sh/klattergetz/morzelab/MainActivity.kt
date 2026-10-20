@@ -252,7 +252,7 @@ private fun MorseApp() {
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = { code = ""; lastCompletedCode = ""; result = "—" }) { Text("Сброс", fontSize = 12.sp) }
+                    TextButton(onClick = { code = ""; lastCompletedCode = ""; result = "—"; transcript = "" }) { Text("Сброс", fontSize = 12.sp) }
                     TextButton(onClick = { finishLetter() }) { Text("Готово", fontSize = 12.sp) }
                     if (mode == Mode.TARGET || mode == Mode.BLIND) {
                         TextButton(onClick = { target = trainingLetters.random(); code = "" }) {
@@ -312,7 +312,7 @@ private val boardPoints = mapOf(
     "." to Pair(.57f, .10f), "-" to Pair(.35f, .10f),
     ".." to Pair(.69f, .10f), ".-" to Pair(.57f, .56f),
     "-." to Pair(.35f, .49f), "--" to Pair(.22f, .10f),
-    "..." to Pair(.81f, .10f), "..-" to Pair(.69f, .27f),
+    "..." to Pair(.81f, .10f), "..-" to Pair(.69f, .23f),
     ".-." to Pair(.70f, .56f), ".--" to Pair(.57f, .75f),
     "-.." to Pair(.35f, .75f), "-.-" to Pair(.22f, .49f),
     "--." to Pair(.22f, .29f), "---" to Pair(.09f, .10f),
@@ -329,7 +329,7 @@ private val boardPoints = mapOf(
     "----." to Pair(.07f, .85f), "-----" to Pair(.07f, .95f),
     // Additional nodes used by the Russian alphabet.
     "---." to Pair(.09f, .21f), "----" to Pair(.09f, .35f),
-    "..--" to Pair(.83f, .37f), ".-.-" to Pair(.70f, .68f),
+    "..--" to Pair(.90f, .37f), ".-.-" to Pair(.70f, .68f),
     "..-.." to Pair(.69f, .45f), "--.--" to Pair(.09f, .42f)
 )
 
@@ -367,31 +367,39 @@ private fun MorseBoard(code: String, showDigits: Boolean, alphabet: Alphabet, mo
                 drawLine(ink, junction, child, strokeWidth = stroke)
             }
         }
-        // Russian Ю (..--): independent raised cyan bridge over the Ж vertical.
-        // The tiny background-colored interruption in the crossing wire is
-        // intentional: it visually indicates that the two tracks do not join.
+        // Russian Ю (..--): run horizontally from У, then vertically down to Ю.
+        // A small break in the crossed С → Ж wire keeps the paths unambiguous.
         if ("..--" in paths) {
-            val from = pos("..-")  // У
-            val to = pos("..--")  // Ю
-            val bridgeY = h * .235f
-            val crossingX = pos("...").x // vertical С → Ж
-            val bridgeColor = if (code.startsWith("..--")) Gold else Color(0xFF4ADBE8)
-            val bridgeWidth = if (code.startsWith("..--")) 3.4.dp.toPx() else 2.4.dp.toPx()
+            val from = pos("..-")   // У
+            val to = pos("..--")    // Ю
+            val crossingX = pos("...").x // С → Ж vertical line
+            val active = code.startsWith("..--")
+            val trackColor = if (active) Mint else Color(0xFF435777)
+            val trackWidth = if (active) 3.dp.toPx() else 1.5.dp.toPx()
             val gap = 5.dp.toPx()
-            // Break ONLY the other branch at the crossing point.
-            drawLine(Panel, Offset(crossingX, bridgeY - gap),
-                Offset(crossingX, bridgeY + gap), strokeWidth = 5.dp.toPx(),
-                cap = StrokeCap.Round)
-            val bridge = Path().apply {
+
+            // Visually interrupt only the crossed line, not the У → Ю connection.
+            drawLine(
+                Panel,
+                Offset(crossingX, from.y - gap),
+                Offset(crossingX, from.y + gap),
+                strokeWidth = 5.dp.toPx(),
+                cap = StrokeCap.Round
+            )
+            val track = Path().apply {
                 moveTo(from.x, from.y)
-                lineTo(from.x, bridgeY)
-                lineTo(to.x, bridgeY)
+                lineTo(to.x, from.y)
                 lineTo(to.x, to.y)
             }
-            drawPath(bridge, bridgeColor, style = Stroke(
-                width = bridgeWidth, cap = StrokeCap.Round,
-                join = androidx.compose.ui.graphics.StrokeJoin.Round
-            ))
+            drawPath(
+                track,
+                trackColor,
+                style = Stroke(
+                    width = trackWidth,
+                    cap = StrokeCap.Round,
+                    join = androidx.compose.ui.graphics.StrokeJoin.Round
+                )
+            )
         }
         paths.forEach { path ->
             val center = pos(path)
